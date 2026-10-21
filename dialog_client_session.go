@@ -9,6 +9,7 @@ import (
 	"fmt"
 	mrand "math/rand/v2"
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -376,6 +377,13 @@ func (d *DialogClientSession) waitAnswer(ctx context.Context, med *DialogMedia, 
 		return errors.Join(err, d.Bye(ctx))
 	}
 
+	// The handshake is only complete once the answer is acknowledged. Without
+	// this the three way handshake never finishes and the server keeps
+	// retransmitting the answer.
+	if err := d.Ack(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -498,6 +506,14 @@ func (d *DialogClientSession) ReInvite(ctx context.Context) error {
 func (d *DialogClientSession) reInviteDo(ctx context.Context, req *sip.Request) (*sip.Response, error) {
 
 	for {
+		// A request within a dialog goes to the first route of the route set,
+		// RFC 3261 section 12.2.1.1. The clone below copies the destination
+		// of the request, and the route set is only filled in afterwards, so
+		// the destination has to be set here.
+		if dest := firstRouteAddress(d.InviteResponse); dest != "" {
+			req.SetDestination(dest)
+		}
+
 		res, err := d.Do(ctx, req.Clone())
 		if err != nil {
 			return nil, err
@@ -713,4 +729,36 @@ func (d *DialogClientSession) reInviteMode(
 	d.setRemoteContact(res.Contact())
 	committed = true
 	return nil
+}
+
+// firstRouteAddress returns the address of the first route of the route set of
+// a response.
+//
+// The route set is the Record-Route header field of the response taken in
+// reverse order, RFC 3261 section 12.1.2. The first route is the closest
+// proxy to the client, so it is the one a request within the dialog has to
+// go to.
+func firstRouteAddress(res *sip.Response) string {
+	if res == nil {
+		return ""
+	}
+
+	routes := res.GetHeaders("record-route")
+	if len(routes) == 0 {
+		return ""
+	}
+
+	// The last record-route is the closest proxy to the client.
+	last := routes[len(routes)-1]
+	uri := sip.Uri{}
+	if _, err := sip.ParseAddressValue(last.Value(), &uri, nil); err != nil {
+		return ""
+	}
+	if uri.Host == "" {
+		return ""
+	}
+	if uri.Port <= 0 {
+		return uri.Host + ":" + strconv.Itoa(sip.DefaultPort(uri.Scheme))
+	}
+	return uri.Host + ":" + strconv.Itoa(uri.Port)
 }

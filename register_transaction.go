@@ -158,6 +158,10 @@ func (t *RegisterTransaction) register(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fail to create transaction req=%q: %w", req.StartLine(), err)
 	}
+	if res == nil {
+		// The transaction can end without a response and without an error.
+		return fmt.Errorf("no response to %q", req.StartLine())
+	}
 
 	via := res.Via()
 	if via == nil {

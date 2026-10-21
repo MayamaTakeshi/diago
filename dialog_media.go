@@ -303,6 +303,16 @@ func (d *DialogMedia) replaceRTPSessionUnsafe(msess *media.MediaSession) error {
 	return nil
 }
 
+// mediaSessionLocked returns the media session, read under the lock.
+//
+// The session is replaced while a call is up, a re-INVITE does that, so
+// reading it without the lock races with the replacement.
+func (d *DialogMedia) mediaSessionLocked() *media.MediaSession {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.mediaSession
+}
+
 func (d *DialogMedia) registerDialogCallbacks(c *dialogCallbacks) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -783,11 +793,11 @@ func (d *DialogMedia) ListenBackground() (stop func() error, err error) {
 	}()
 
 	return func() error {
-		if err := d.mediaSession.StopRTP(1, 0); err != nil {
+		if err := d.mediaSessionLocked().StopRTP(1, 0); err != nil {
 			return err
 		}
 		wg.Wait() // This makes sure we have exited reading
-		if err := d.mediaSession.StartRTP(1); err != nil {
+		if err := d.mediaSessionLocked().StartRTP(1); err != nil {
 			return err
 		}
 		return readErr
@@ -803,7 +813,7 @@ func (d *DialogMedia) ListenContext(pctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		if pctx.Err() != nil {
-			d.mediaSession.StopRTP(1, 0)
+			d.mediaSessionLocked().StopRTP(1, 0)
 		}
 	}()
 	audioReader, err := d.AudioReader()
@@ -824,7 +834,7 @@ func (d *DialogMedia) ListenContext(pctx context.Context) error {
 func (d *DialogMedia) ListenUntil(dur time.Duration) error {
 	buf := make([]byte, media.RTPBufSize)
 
-	d.mediaSession.StopRTP(1, dur)
+	d.mediaSessionLocked().StopRTP(1, dur)
 	audioReader, err := d.AudioReader()
 	if err != nil {
 		return err
@@ -838,11 +848,11 @@ func (d *DialogMedia) ListenUntil(dur time.Duration) error {
 }
 
 func (d *DialogMedia) StopRTP(rw int8, dur time.Duration) error {
-	return d.mediaSession.StopRTP(rw, dur)
+	return d.mediaSessionLocked().StopRTP(rw, dur)
 }
 
 func (d *DialogMedia) StartRTP(rw int8, dur time.Duration) error {
-	return d.mediaSession.StartRTP(rw)
+	return d.mediaSessionLocked().StartRTP(rw)
 }
 
 type rtpDTMFDeadline interface {

@@ -583,10 +583,7 @@ func (dg *Diago) Invite(ctx context.Context, recipient sip.Uri, opts InviteOptio
 		return nil, nil, errors.Join(err, closeErr)
 	}
 
-	if err := d.Ack(ctx); err != nil {
-		closeErr := d.Close()
-		return nil, nil, errors.Join(err, closeErr)
-	}
+	// The answer is acknowledged by waitAnswer.
 	return d, med, nil
 }
 
@@ -617,10 +614,7 @@ func (dg *Diago) InviteBridge(ctx context.Context, recipient sip.Uri, bridge *Br
 		return nil, nil, err
 	}
 
-	if err := d.Ack(ctx); err != nil {
-		d.Close()
-		return nil, nil, err
-	}
+	// The answer is acknowledged by waitAnswer.
 	return d, med, nil
 }
 
